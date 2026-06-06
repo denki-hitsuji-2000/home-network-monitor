@@ -1,0 +1,6 @@
+{
+  "Subnet": "192.168.10",
+  "StartHost": 1,
+  "EndHost": 254,
+  "PingTimeoutSeconds": 1
+}
