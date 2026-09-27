@@ -1,10 +1,24 @@
-﻿# --- パラメータ ---
+# --- パラメータ ---
 param(
-    [string]$ConfigPath = "$PSScriptRoot\..\config\settings.json"
+    [string]$ConfigPath = "$PSScriptRoot\..\config\settings.json",
+    # 指定された場合だけsettings.jsonより優先する
+    [string]$Cidr
 )
 
+Write-Host "設定ファイルの読み込み中: $ConfigPath"
+
+if (-not (Test-Path $ConfigPath)) {
+    Write-Error "設定ファイルが見つかりません: $ConfigPath"
+    exit 1
+}
+
+# JSON設定ファイルを読み込み
+$config = Get-Content $ConfigPath -Encoding UTF8 | ConvertFrom-Json
+# ルートディレクトリの設定
+$rootDir = $config.Paths.RootDirectory
+
 # --- OUI データベースの読み込み ---
-$ouiPath = "$PSScriptRoot\..\config\oui.json"
+$ouiPath = Join-Path $rootDir $config.Paths.Config.OuiJson
 $ouiDB = @{}
 
 if (Test-Path $ouiPath) {
@@ -54,23 +68,126 @@ function Get-HostNameFromIP {
     return ""  # どれも取れなければ空
 }
 
-# --- 設定読込 ---
-if (Test-Path $ConfigPath) {
-    $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-    $subnet   = $config.Subnet
-    $start    = $config.StartHost
-    $end      = $config.EndHost
-}
-else {
-    Write-Warning "設定ファイルが見つかりません。デフォルト値を使用します。"
-    $subnet   = "192.168.1"
-    $start    = 1
-    $end      = 254
+function Convert-IPv4ToUInt32 {
+    param (
+        [Parameter(Mandatory)]
+        [string]$IpAddress
+    )
+
+    $parsedAddress = [System.Net.IPAddress]::Parse($IpAddress)
+    $bytes = $parsedAddress.GetAddressBytes()
+
+    if ($bytes.Length -ne 4) {
+        throw "IPv4アドレスではありません: $IpAddress"
+    }
+
+    $value = 
+        ([UInt64]$bytes[0] * 16777216) +
+        ([UInt64]$bytes[1] * 65536) +
+        ([UInt64]$bytes[2] * 256) +
+        ([UInt64]$bytes[3])
+    
+    return [UInt32]$value
 }
 
+function Convert-UInt32ToIPv4 {
+    param (
+        [Parameter(Mandatory)]
+        [UInt32]$Value
+    )
+
+    return "{0}.{1}.{2}.{3}" -f `
+        (([UInt64]$Value -shr 24) -band 255),
+        (([UInt64]$Value -shr 16) -band 255),
+        (([UInt64]$Value -shr 8) -band 255),
+        ([UInt64]$Value -band 255)    
+}
+
+function Get-IPv4HostAddress {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Cidr,
+
+        # 誤って非常に大きなネットワークを指定することを防止する
+        [int]$MaximumHosts = 4096
+    )
+    
+    $parts = $Cidr.Trim().Split('/')
+
+    if ($parts.Count -ne 2) {
+        throw "CIDRの形式が正しくありません: $Cidr"
+    }
+
+    $baseAddress = $parts[0]
+
+    try {
+        $prefixLength = [int]$parts[1]
+    }
+    catch {
+        throw "プレフィックス長が正しくありません: $Cidr"
+    }
+
+    if ($prefixLength -lt 0 -or $prefixLength -gt 32) {
+        throw "プレフィックス長は0~32で指定してください: $Cidr"
+    }
+
+    $ipValue = Convert-IPv4ToUInt32 -IpAddress $baseAddress
+    $blockSize = [UInt64][System.Math]::Pow(2, (32 - $prefixLength))
+
+    # 入力が192.168.0.15/24でも192.168.0.0を求める
+    $networkValue = [UInt64]$ipValue - ([UInt64]$ipValue % $blockSize)
+
+    if ($prefixLength -eq 32) {
+        $firstHost = $networkValue
+        $hostCount = [UInt64]1
+    }
+    elseif ($prefixLength -eq 31) {
+        $firstHost = $networkValue
+        $hostCount = [UInt64]2
+    }
+    else {
+        # ネットワークアドレスとブロードキャストアドレスを除外
+        $firstHost = $networkValue + 1
+        $hostCount = $blockSize - 2
+    }
+
+    if ($hostCount -gt $MaximumHosts) {
+        throw "スキャン対象が上限を超えています。CIDR=$Cidr 対象数=$hostCount 上限=$MaximumHosts"
+    }
+
+    for ([UInt64]$offset = 0; $offset -lt $hostCount; $offset++) {
+        $currentAddress = [UInt32]($firstHost + $offset)
+        Convert-UInt32ToIPv4 -Value $currentAddress
+    }
+}
+
+# --- 設定読込 ---
+if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+    throw "設定ファイルが見つかりません: $ConfigPath"
+}
+
+$config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+# CIDRを決定する
+if ($PSBoundParameters.ContainsKey('Cidr')) {
+    $scanCidr = $Cidr
+    Write-Host "パラメータ指定のCIDRを使用します: $scanCidr"
+}
+else {
+    $scanCidr = [string]$config.Network.Cidr
+    Write-Host "settings.jsonのCIDRを使用します: $scanCidr"
+}
+
+if ([string]::IsNullOrWhiteSpace($scanCidr)) {
+    throw "Network.Cidrが設定されていません。"
+}
+
+$targetAddress = @(Get-IPv4HostAddress -Cidr $scanCidr -MaximumHosts 4096)
+
+Write-Host "スキャン対象数: $($targetAddress.Count)"
+
 # --- ログフォルダ ---
-$rootDir  = Split-Path -Parent $PSScriptRoot
-$logDir   = Join-Path $rootDir "logs"
+$logDir   = Join-Path $rootDir $config.Paths.LanScan.OutputDirectory
 if (-not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Path $logDir | Out-Null
 }
@@ -82,13 +199,15 @@ Write-Host "==== LAN スキャン開始 ====" -ForegroundColor Green
 
 $results = @()
 
-for ($i = $start; $i -le $end; $i++) {
-
-    $ip = "$subnet.$i"
-    Write-Host ("Ping -> {0}" -f $ip) -ForegroundColor Cyan
+foreach ($ip in $targetAddress) {
+    Write-Host "確認中: $ip" -ForegroundColor Cyan
 
     # Windows PowerShell 5.1 用 Ping
-    $alive = Test-Connection -ComputerName $ip -Count 1 -Quiet
+    $alive = Test-Connection -ComputerName $ip -Count 1 -Quiet -ErrorAction SilentlyContinue
+
+    if (-not $alive) {
+        continue
+    }
 
     if ($alive) {
 
