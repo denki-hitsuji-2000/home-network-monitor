@@ -1,6 +1,25 @@
 {
-  "Subnet": "192.168.0",
-  "StartHost": 1,
-  "EndHost": 254,
-  "PingTimeoutSeconds": 1
+  "Network": {
+    "Cidr": "192.168.0.0/24"
+  },
+  "LanScan": {
+    "PingTimeoutSeconds": 1
+  },
+  "Paths": {
+    "RootDirectory": "C:\\NetworkMonitor",
+    "Config": {
+      "OuiRawCsv": "config\\oui_raw.csv",
+      "OuiJson": "config\\oui.json"
+    },
+    "LanScan": {
+      "OutputDirectory": "data\\lanscan"
+    },
+    "Nmap": {
+      "XmlDirectory": "data\\nmap\\xml",
+      "RunLogDirectory": "logs\\nmap\\run"
+    }
+  },
+  "Nmap": {
+    "ExecutablePath": "C:\\Program Files (x86)\\Nmap\\nmap.exe"
+  }
 }
