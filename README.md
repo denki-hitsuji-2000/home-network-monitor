@@ -39,9 +39,11 @@ note記事で解説している内容に関連する、以下のような公開�
 ```text
 scripts/
   Convert_OUI.ps1
+  LanScan.ps1
+  NmapScan.ps1
 
 config/
-  settings.example.json
+  settings.json
 ```
 
 ### Convert_OUI.ps1
@@ -52,7 +54,11 @@ IEEEのOUI情報CSVを読み込み、MACアドレスの先頭3バイトからベ
 
 家庭内LANのIPアドレス範囲をスキャンし、応答のあった端末について、IPアドレス、ホスト名、MACアドレス、ベンダー名などをCSV / JSONに出力するスクリプトです。
 
-### settings.example.json
+### NmapScan.ps1
+
+家庭内LANのIPアドレス範囲をNmapでスキャンし、検出した端末のポート、サービス、バージョンなどの情報をXML形式で出力するとともに、Nmapの実行内容をログファイルへ保存するスクリプトです。
+
+### settings.json
 
 スキャン範囲などを指定する設定ファイルのサンプルです。
 実際に使用する場合は、自分の環境に合わせて内容を変更してください。
