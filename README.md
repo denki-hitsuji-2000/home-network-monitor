@@ -41,6 +41,7 @@ scripts/
   Convert_OUI.ps1
   LanScan.ps1
   NmapScan.ps1
+  Convert_NmapXml.ps1
 
 config/
   settings.json
