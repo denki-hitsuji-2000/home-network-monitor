@@ -16,7 +16,8 @@
     },
     "Nmap": {
       "XmlDirectory": "data\\nmap\\xml",
-      "RunLogDirectory": "logs\\nmap\\run"
+      "RunLogDirectory": "logs\\nmap\\run",
+      "JsonDirectory": "data\\nmap\\json"
     }
   },
   "Nmap": {
